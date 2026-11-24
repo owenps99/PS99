@@ -1,0 +1,645 @@
+--// Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+--// Rayfield
+local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
+
+local Window = Rayfield:CreateWindow({
+	Name = "Shooting Arena",
+	LoadingTitle = "Shooting Arena",
+	LoadingSubtitle = "Practice Tools",
+	ConfigurationSaving = {
+		Enabled = true,
+		FolderName = "ShootingArena",
+		FileName = "PracticeSettings"
+	}
+})
+
+local CombatTab = Window:CreateTab("Combat", 4483362458)
+local SettingsTab = Window:CreateTab("Settings", 4483362458)
+
+--// Settings
+local espEnabled = false
+local showCircles = true
+local teamCheckEnabled = true
+
+local aimbotEnabled = false
+local aimKeyEnabled = false
+local targetPartName = "Head"
+local aimStrength = 1
+local maxAimDistance = 1000
+
+local crosshairEnabled = true
+local crosshairSize = 14
+local crosshairGap = 5
+local crosshairThickness = 2
+local crosshairColor = Color3.fromRGB(255, 255, 255)
+
+local fovEnabled = true
+local fovRadius = 300
+local fovColor = Color3.fromRGB(255, 255, 255)
+local fovThickness = 2
+local fovTransparency = 0.5
+
+--// Team check
+local function isOnMyTeam(player)
+	if not teamCheckEnabled then
+		return false
+	end
+
+	return player.Team ~= nil and player.Team == LocalPlayer.Team
+end
+
+local function isTarget(player)
+	if player == LocalPlayer then
+		return false
+	end
+
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+
+	if not character or not humanoid or humanoid.Health <= 0 then
+		return false
+	end
+
+	return not isOnMyTeam(player)
+end
+
+--// ESP
+local function createESP(character)
+	if character:FindFirstChild("ArenaESP") then
+		return character:FindFirstChild("ArenaESP")
+	end
+
+	local highlight = Instance.new("Highlight")
+	highlight.Name = "ArenaESP"
+	highlight.FillColor = Color3.fromRGB(255, 0, 0)
+	highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+	highlight.FillTransparency = 0.65
+	highlight.OutlineTransparency = 0
+	highlight.Enabled = false
+	highlight.Parent = character
+
+	local rootPart = character:WaitForChild("HumanoidRootPart", 5)
+
+	if rootPart then
+		local billboard = Instance.new("BillboardGui")
+		billboard.Name = "ArenaCircle"
+		billboard.Size = UDim2.fromOffset(45, 45)
+		billboard.StudsOffset = Vector3.new(0, 3.5, 0)
+		billboard.AlwaysOnTop = true
+		billboard.Enabled = false
+		billboard.Parent = rootPart
+
+		local circle = Instance.new("Frame")
+		circle.Name = "Circle"
+		circle.Size = UDim2.fromScale(1, 1)
+		circle.BackgroundTransparency = 0.35
+		circle.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+		circle.BorderSizePixel = 0
+		circle.Parent = billboard
+
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(1, 0)
+		corner.Parent = circle
+
+		local stroke = Instance.new("UIStroke")
+		stroke.Color = Color3.fromRGB(255, 255, 255)
+		stroke.Thickness = 2
+		stroke.Parent = circle
+	end
+
+	return highlight
+end
+
+local function updateESP()
+	for _, player in Players:GetPlayers() do
+		local character = player.Character
+
+		if character and isTarget(player) then
+			local highlight = createESP(character)
+			highlight.Enabled = espEnabled
+
+			local rootPart = character:FindFirstChild("HumanoidRootPart")
+			local circle = rootPart and rootPart:FindFirstChild("ArenaCircle")
+
+			if circle then
+				circle.Enabled = espEnabled and showCircles
+			end
+		end
+	end
+end
+
+local function onCharacterAdded(player, character)
+	task.wait(0.25)
+
+	if isTarget(player) then
+		createESP(character)
+		updateESP()
+	end
+end
+
+Players.PlayerAdded:Connect(function(player)
+	player.CharacterAdded:Connect(function(character)
+		onCharacterAdded(player, character)
+	end)
+
+	player:GetPropertyChangedSignal("Team"):Connect(updateESP)
+end)
+
+for _, player in Players:GetPlayers() do
+	player.CharacterAdded:Connect(function(character)
+		onCharacterAdded(player, character)
+	end)
+
+	player:GetPropertyChangedSignal("Team"):Connect(updateESP)
+end
+
+LocalPlayer:GetPropertyChangedSignal("Team"):Connect(updateESP)
+
+--// Crosshair
+local crosshairGui = Instance.new("ScreenGui")
+crosshairGui.Name = "ArenaCrosshair"
+crosshairGui.ResetOnSpawn = false
+crosshairGui.IgnoreGuiInset = true
+crosshairGui.DisplayOrder = 100
+crosshairGui.Parent = PlayerGui
+
+local crosshairContainer = Instance.new("Frame")
+crosshairContainer.Name = "Crosshair"
+crosshairContainer.AnchorPoint = Vector2.new(0.5, 0.5)
+crosshairContainer.Position = UDim2.fromScale(0.5, 0.5)
+crosshairContainer.Size = UDim2.fromOffset(100, 100)
+crosshairContainer.BackgroundTransparency = 1
+crosshairContainer.Parent = crosshairGui
+
+local function createCrosshairLine(name, size, position)
+	local line = Instance.new("Frame")
+	line.Name = name
+	line.AnchorPoint = Vector2.new(0.5, 0.5)
+	line.Size = size
+	line.Position = position
+	line.BackgroundColor3 = crosshairColor
+	line.BorderSizePixel = 0
+	line.Parent = crosshairContainer
+
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = Color3.fromRGB(0, 0, 0)
+	stroke.Thickness = 1
+	stroke.Transparency = 0.35
+	stroke.Parent = line
+
+	return line
+end
+
+local topLine = createCrosshairLine(
+	"Top",
+	UDim2.fromOffset(crosshairThickness, crosshairSize),
+	UDim2.new(0.5, 0, 0.5, -(crosshairGap + crosshairSize / 2))
+)
+
+local bottomLine = createCrosshairLine(
+	"Bottom",
+	UDim2.fromOffset(crosshairThickness, crosshairSize),
+	UDim2.new(0.5, 0, 0.5, crosshairGap + crosshairSize / 2)
+)
+
+local leftLine = createCrosshairLine(
+	"Left",
+	UDim2.fromOffset(crosshairSize, crosshairThickness),
+	UDim2.new(0.5, -(crosshairGap + crosshairSize / 2), 0.5, 0)
+)
+
+local rightLine = createCrosshairLine(
+	"Right",
+	UDim2.fromOffset(crosshairSize, crosshairThickness),
+	UDim2.new(0.5, crosshairGap + crosshairSize / 2, 0.5, 0)
+)
+
+local centerDot = Instance.new("Frame")
+centerDot.Name = "CenterDot"
+centerDot.AnchorPoint = Vector2.new(0.5, 0.5)
+centerDot.Position = UDim2.fromScale(0.5, 0.5)
+centerDot.Size = UDim2.fromOffset(3, 3)
+centerDot.BackgroundColor3 = crosshairColor
+centerDot.BorderSizePixel = 0
+centerDot.Parent = crosshairContainer
+
+local centerCorner = Instance.new("UICorner")
+centerCorner.CornerRadius = UDim.new(1, 0)
+centerCorner.Parent = centerDot
+
+local function updateCrosshair()
+	topLine.Size = UDim2.fromOffset(crosshairThickness, crosshairSize)
+	bottomLine.Size = UDim2.fromOffset(crosshairThickness, crosshairSize)
+	leftLine.Size = UDim2.fromOffset(crosshairSize, crosshairThickness)
+	rightLine.Size = UDim2.fromOffset(crosshairSize, crosshairThickness)
+
+	topLine.Position = UDim2.new(0.5, 0, 0.5, -(crosshairGap + crosshairSize / 2))
+	bottomLine.Position = UDim2.new(0.5, 0, 0.5, crosshairGap + crosshairSize / 2)
+	leftLine.Position = UDim2.new(0.5, -(crosshairGap + crosshairSize / 2), 0.5, 0)
+	rightLine.Position = UDim2.new(0.5, crosshairGap + crosshairSize / 2, 0.5, 0)
+
+	topLine.BackgroundColor3 = crosshairColor
+	bottomLine.BackgroundColor3 = crosshairColor
+	leftLine.BackgroundColor3 = crosshairColor
+	rightLine.BackgroundColor3 = crosshairColor
+	centerDot.BackgroundColor3 = crosshairColor
+end
+
+--// FOV Circle
+local fovGui = Instance.new("ScreenGui")
+fovGui.Name = "ArenaFOV"
+fovGui.ResetOnSpawn = false
+fovGui.IgnoreGuiInset = true
+fovGui.DisplayOrder = 99
+fovGui.Parent = PlayerGui
+
+local fovCircle = Instance.new("Frame")
+fovCircle.Name = "FOVCircle"
+fovCircle.AnchorPoint = Vector2.new(0.5, 0.5)
+fovCircle.Position = UDim2.fromScale(0.5, 0.5)
+fovCircle.Size = UDim2.fromOffset(fovRadius * 2, fovRadius * 2)
+fovCircle.BackgroundTransparency = 1
+fovCircle.Parent = fovGui
+
+local fovRing = Instance.new("Frame")
+fovRing.Name = "Ring"
+fovRing.AnchorPoint = Vector2.new(0.5, 0.5)
+fovRing.Position = UDim2.fromScale(0.5, 0.5)
+fovRing.Size = UDim2.fromScale(1, 1)
+fovRing.BackgroundTransparency = 1
+fovRing.Parent = fovCircle
+
+local fovRingStroke = Instance.new("UIStroke")
+fovRingStroke.Color = fovColor
+fovRingStroke.Thickness = fovThickness
+fovRingStroke.Transparency = fovTransparency
+fovRingStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+fovRingStroke.Parent = fovRing
+
+local fovFill = Instance.new("Frame")
+fovFill.Name = "Fill"
+fovFill.AnchorPoint = Vector2.new(0.5, 0.5)
+fovFill.Position = UDim2.fromScale(0.5, 0.5)
+fovFill.Size = UDim2.fromScale(1, 1)
+fovFill.BackgroundColor3 = fovColor
+fovFill.BackgroundTransparency = 0.97
+fovFill.BorderSizePixel = 0
+fovFill.Parent = fovCircle
+
+local fovCorner = Instance.new("UICorner")
+fovCorner.CornerRadius = UDim.new(1, 0)
+fovCorner.Parent = fovFill
+
+local function updateFOVCircle()
+	fovCircle.Size = UDim2.fromOffset(fovRadius * 2, fovRadius * 2)
+	fovRingStroke.Color = fovColor
+	fovRingStroke.Thickness = fovThickness
+	fovRingStroke.Transparency = fovTransparency
+	fovFill.BackgroundColor3 = fovColor
+	fovGui.Enabled = fovEnabled
+end
+
+--// Aimbot
+local function getTargetPosition(player)
+	local character = player.Character
+
+	if not character then
+		return nil
+	end
+
+	local targetPart = character:FindFirstChild(targetPartName)
+
+	if not targetPart then
+		return nil
+	end
+
+	return targetPart.Position
+end
+
+local function isInsideFOV(position)
+	if not fovEnabled then
+		return true
+	end
+
+	local screenPoint, onScreen = Camera:WorldToViewportPoint(position)
+
+	if not onScreen then
+		return false
+	end
+
+	local screenCenter = Camera.ViewportSize / 2
+	local targetScreenPosition = Vector2.new(screenPoint.X, screenPoint.Y)
+	local distance = (targetScreenPosition - screenCenter).Magnitude
+
+	return distance <= fovRadius
+end
+
+local function getClosestTarget()
+	local myCharacter = LocalPlayer.Character
+	local myRootPart = myCharacter and myCharacter:FindFirstChild("HumanoidRootPart")
+
+	if not myRootPart then
+		return nil
+	end
+
+	local closestPlayer = nil
+	local closestDistance = maxAimDistance
+
+	for _, player in Players:GetPlayers() do
+		if player == LocalPlayer then
+			continue
+		end
+
+		if isTarget(player) then
+			local targetPosition = getTargetPosition(player)
+
+			if targetPosition and isInsideFOV(targetPosition) then
+				local distance = (targetPosition - myRootPart.Position).Magnitude
+
+				if distance < closestDistance then
+					closestDistance = distance
+					closestPlayer = player
+				end
+			end
+		end
+	end
+
+	return closestPlayer
+end
+
+RunService.RenderStepped:Connect(function()
+	crosshairContainer.Visible = crosshairEnabled and not aimbotEnabled
+
+	if not aimbotEnabled then
+		return
+	end
+
+	if aimKeyEnabled and not UserInputService:IsKeyDown(Enum.KeyCode.E) then
+		return
+	end
+
+	local targetPlayer = getClosestTarget()
+
+	if not targetPlayer or targetPlayer == LocalPlayer then
+		return
+	end
+
+	local targetPosition = getTargetPosition(targetPlayer)
+
+	if not targetPosition then
+		return
+	end
+
+	local cameraCFrame = Camera.CFrame
+	local direction = (targetPosition - cameraCFrame.Position).Unit
+
+	if direction.Magnitude <= 0 then
+		return
+	end
+
+	local targetLook = CFrame.lookAt(
+		cameraCFrame.Position,
+		cameraCFrame.Position + direction
+	)
+
+	if aimStrength >= 1 then
+		Camera.CFrame = targetLook
+	else
+		Camera.CFrame = cameraCFrame:Lerp(targetLook, aimStrength)
+	end
+end)
+
+--// UI: Combat
+CombatTab:CreateSection("ESP")
+
+CombatTab:CreateToggle({
+	Name = "Enable ESP",
+	CurrentValue = false,
+	Flag = "ESPEnabled",
+	Callback = function(value)
+		espEnabled = value
+		updateESP()
+	end
+})
+
+CombatTab:CreateToggle({
+	Name = "Show Player Circles",
+	CurrentValue = true,
+	Flag = "ShowCircles",
+	Callback = function(value)
+		showCircles = value
+		updateESP()
+	end
+})
+
+CombatTab:CreateToggle({
+	Name = "Enable Team Check",
+	CurrentValue = true,
+	Flag = "TeamCheck",
+	Callback = function(value)
+		teamCheckEnabled = value
+		updateESP()
+	end
+})
+
+CombatTab:CreateSection("Aimbot")
+
+CombatTab:CreateToggle({
+	Name = "Enable Aimbot",
+	CurrentValue = false,
+	Flag = "AimbotEnabled",
+	Callback = function(value)
+		aimbotEnabled = value
+	end
+})
+
+CombatTab:CreateDropdown({
+	Name = "Target Part",
+	Options = {"Head", "Body"},
+	CurrentOption = {"Head"},
+	MultipleOptions = false,
+	Flag = "AimTargetPart",
+	Callback = function(option)
+		targetPartName = option == "Body" and "HumanoidRootPart" or "Head"
+	end
+})
+
+CombatTab:CreateSlider({
+	Name = "Aim Strength",
+	Range = {0.05, 1},
+	Increment = 0.05,
+	Suffix = "Strength",
+	CurrentValue = 1,
+	Flag = "AimStrength",
+	Callback = function(value)
+		aimStrength = value
+	end
+})
+
+CombatTab:CreateSlider({
+	Name = "Maximum Distance",
+	Range = {50, 1000},
+	Increment = 10,
+	Suffix = "studs",
+	CurrentValue = 1000,
+	Flag = "AimDistance",
+	Callback = function(value)
+		maxAimDistance = value
+	end
+})
+
+CombatTab:CreateToggle({
+	Name = "Require E Key",
+	CurrentValue = false,
+	Flag = "AimKeyRequired",
+	Callback = function(value)
+		aimKeyEnabled = value
+	end
+})
+
+CombatTab:CreateSection("FOV")
+
+CombatTab:CreateToggle({
+	Name = "Show FOV Circle",
+	CurrentValue = true,
+	Flag = "ShowFOVCircle",
+	Callback = function(value)
+		fovEnabled = value
+		updateFOVCircle()
+	end
+})
+
+CombatTab:CreateSlider({
+	Name = "FOV Radius",
+	Range = {25, 500},
+	Increment = 5,
+	Suffix = "px",
+	CurrentValue = 300,
+	Flag = "FOVRadius",
+	Callback = function(value)
+		fovRadius = value
+		updateFOVCircle()
+	end
+})
+
+CombatTab:CreateSlider({
+	Name = "FOV Thickness",
+	Range = {1, 8},
+	Increment = 1,
+	Suffix = "px",
+	CurrentValue = 2,
+	Flag = "FOVThickness",
+	Callback = function(value)
+		fovThickness = value
+		updateFOVCircle()
+	end
+})
+
+CombatTab:CreateSlider({
+	Name = "FOV Transparency",
+	Range = {0, 1},
+	Increment = 0.05,
+	Suffix = "",
+	CurrentValue = 0.5,
+	Flag = "FOVTransparency",
+	Callback = function(value)
+		fovTransparency = value
+		updateFOVCircle()
+	end
+})
+
+CombatTab:CreateColorPicker({
+	Name = "FOV Color",
+	Color = fovColor,
+	Flag = "FOVColor",
+	Callback = function(color)
+		fovColor = color
+		updateFOVCircle()
+	end
+})
+
+CombatTab:CreateSection("Crosshair")
+
+CombatTab:CreateToggle({
+	Name = "Enable Crosshair",
+	CurrentValue = true,
+	Flag = "CrosshairEnabled",
+	Callback = function(value)
+		crosshairEnabled = value
+		crosshairGui.Enabled = value
+	end
+})
+
+CombatTab:CreateSlider({
+	Name = "Crosshair Size",
+	Range = {4, 30},
+	Increment = 1,
+	Suffix = "px",
+	CurrentValue = 14,
+	Flag = "CrosshairSize",
+	Callback = function(value)
+		crosshairSize = value
+		updateCrosshair()
+	end
+})
+
+CombatTab:CreateSlider({
+	Name = "Crosshair Gap",
+	Range = {0, 20},
+	Increment = 1,
+	Suffix = "px",
+	CurrentValue = 5,
+	Flag = "CrosshairGap",
+	Callback = function(value)
+		crosshairGap = value
+		updateCrosshair()
+	end
+})
+
+CombatTab:CreateSlider({
+	Name = "Crosshair Thickness",
+	Range = {1, 6},
+	Increment = 1,
+	Suffix = "px",
+	CurrentValue = 2,
+	Flag = "CrosshairThickness",
+	Callback = function(value)
+		crosshairThickness = value
+		updateCrosshair()
+	end
+})
+
+CombatTab:CreateColorPicker({
+	Name = "Crosshair Color",
+	Color = crosshairColor,
+	Flag = "CrosshairColor",
+	Callback = function(color)
+		crosshairColor = color
+		updateCrosshair()
+	end
+})
+
+--// UI: Settings
+SettingsTab:CreateSection("Cleanup")
+
+SettingsTab:CreateButton({
+	Name = "Destroy UI",
+	Callback = function()
+		crosshairGui:Destroy()
+		fovGui:Destroy()
+		Rayfield:Destroy()
+	end
+})
+
+updateCrosshair()
+updateFOVCircle()
+updateESP()
